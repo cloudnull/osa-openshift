@@ -1,0 +1,141 @@
+---
+# Copyright 2017, Rackspace US, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+- name: Create keys
+  hosts: localhost
+  connection: local
+  vars:
+    ansible_become: false
+    host_key_checking: false
+    ansible_ssh_extra_args: >
+      -o UserKnownHostsFile=/dev/null
+      -o StrictHostKeyChecking=no
+      -o ServerAliveInterval=64
+      -o ServerAliveCountMax=1024
+      -o Compression=no
+      -o TCPKeepAlive=yes
+      -o VerifyHostKeyDNS=no
+      -o ForwardX11=no
+      -o ForwardAgent=yes
+      -T
+  tasks:
+    - name: Stat id_rsa key
+      stat:
+        path: "{{ ansible_env.HOME }}/.ssh/id_rsa"
+      changed_when: false
+      register: st
+
+    - name: Create key
+      command: "ssh-keygen -f {{ ansible_env.HOME }}/.ssh/id_rsa -t rsa -N ''"
+      when:
+        - not st.stat.exists | bool
+
+
+- name: Create host file(s) and Key(s)
+  hosts: os_vms
+  user: centos
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_become: false
+    host_key_checking: false
+    ansible_ssh_extra_args: >
+      -o UserKnownHostsFile=/dev/null
+      -o StrictHostKeyChecking=no
+      -o ServerAliveInterval=64
+      -o ServerAliveCountMax=1024
+      -o Compression=no
+      -o TCPKeepAlive=yes
+      -o VerifyHostKeyDNS=no
+      -o ForwardX11=no
+      -o ForwardAgent=yes
+      -T
+  tasks:
+    - name: Lookup host addresse
+      shell: "host -4 {{ inventory_hostname }} | awk '/address/ {print $4}'"
+      register: addr_lookup
+      changed_when: false
+
+    - name: Amend host file
+      shell: |
+        if ! grep -q "{{ addr_lookup.stdout.strip() }}" /etc/hosts; then
+          echo "{{ addr_lookup.stdout.strip() }} {{ inventory_hostname }}" | sudo tee -a /etc/hosts
+        fi
+      register: host_file
+      changed_when: host_file.rc == 3
+      failed_when: host_file.rc not in [0, 3]
+
+    - name: Get home directory
+      shell: "getent passwd {{ ansible_user }} | awk -F':' '{print $6}'"
+      register: user_home_dir
+      changed_when: false
+
+    - name: Set key target fact
+      set_fact:
+        key_target: "{{ user_home_dir.stdout }}/.ssh/id_rsa.pub"
+
+    - name: Add ssh keys
+      authorized_key:
+        user: centos
+        key: "{{ lookup('file', key_target) }}"
+
+- name: Setup hosts
+  hosts: os_vms
+  user: centos
+  vars:
+    ansible_become: true
+    host_key_checking: false
+    ansible_ssh_extra_args: >
+      -o UserKnownHostsFile=/dev/null
+      -o StrictHostKeyChecking=no
+      -o ServerAliveInterval=64
+      -o ServerAliveCountMax=1024
+      -o Compression=no
+      -o TCPKeepAlive=yes
+      -o VerifyHostKeyDNS=no
+      -o ForwardX11=no
+      -o ForwardAgent=yes
+      -T
+
+  tasks:
+    - name: Get home directory
+      shell: "getent passwd {{ ansible_user }} | awk -F':' '{print $6}'"
+      register: user_home_dir
+      changed_when: false
+
+    - name: Copy files
+      copy:
+        src: "{{ item }}"
+        dest: "{{ item }}"
+      with_items:
+        - /etc/hosts
+        - "{{ user_home_dir.stdout }}/.ssh/authorized_keys"
+
+    - name: Install packages
+      package:
+        name: "{{ item }}"
+      with_items:
+        - NetworkManager
+
+    - name: Create openshift directory
+      file:
+        dest: /etc/openshift
+        state: directory
+
+    - name: Start NetworkManager
+      service:
+        name: NetworkManager.service
+        state: started
+        enabled: yes

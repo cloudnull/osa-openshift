@@ -1,0 +1,139 @@
+# Copyright 2017, Rackspace US, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+################################# OSE LAYOUT #################################
+[OSEv3:children]
+masters
+nodes
+etcd
+lb
+
+
+################################## OSE VARS ##################################
+[OSEv3:vars]
+# Ansible vars
+ansible_ssh_user=centos
+ansible_become=true
+
+# Debug level for all OpenShift components (Defaults to 2)
+debug_level=2
+
+# OpenShift vars
+## Type
+deployment_type=origin
+openshift_release="1.5"
+openshift_pkg_version=-1.5.1
+openshift_image_tag=v1.5.1
+
+## Provide OSE examples
+openshift_install_examples=true
+
+# ## OpenStack Auth vars
+# In oder to use OpenStack integration within openshift, you MUST have a legit certificate
+#  on auth (the load balancer) or you must have a route to an http endpoint from
+#  witiin the tenant network.
+
+# openshift_cloudprovider_kind=openstack
+# openshift_cloudprovider_openstack_auth_url=https://localhost:5000/v3
+# openshift_cloudprovider_openstack_username=admin
+# openshift_cloudprovider_openstack_password=SuperSecrete
+# openshift_cloudprovider_openstack_domain_id=default
+# openshift_cloudprovider_openstack_domain_name=admin
+# openshift_cloudprovider_openstack_tenant_id=123456789012357890
+# openshift_cloudprovider_openstack_tenant_name=admin
+# openshift_cloudprovider_openstack_region=RegionOne
+# openshift_cloudprovider_openstack_lb_subnet_id=000000-0000-0000-000-00000
+# ## OpenStack Cinder vars
+# openshift_hosted_registry_storage_kind=openstack
+# openshift_hosted_registry_storage_access_modes=['ReadWriteOnce']
+# openshift_hosted_registry_storage_openstack_filesystem=ext4
+# openshift_hosted_registry_storage_openstack_volumeID=000000-0000-0000-000-00000
+# openshift_hosted_registry_storage_volume_size=10Gi
+
+# use htpasswd authentication with demo/demo
+openshift_master_identity_providers=[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]
+openshift_master_htpasswd_users={'demo': '$apr1$.MaA77kd$Rlnn6RXq9kCjnEfh5I3w/.'}
+
+# put the router on dedicated infra node
+openshift_hosted_router_selector='region=infra'
+openshift_master_default_subdomain=loadbalancer-1
+
+# put the image registry on dedicated infra node
+openshift_hosted_registry_selector='region=infra'
+
+# project pods should be placed on primary nodes
+osm_default_node_selector='region=primary'
+
+openshift_master_cluster_method=native
+openshift_master_cluster_password=secrete
+openshift_master_cluster_hostname=loadbalancer-1
+openshift_master_cluster_public_hostname=loadbalancer-1
+openshift_master_cluster_vip=loadbalancer-1
+openshift_master_cluster_public_vip=loadbalancer-1
+
+openshift_public_hostname="{{ ansible_host }}"
+openshift_hostname="{{ inventory_hostname }}"
+
+# Enable the use of flannel
+os_sdn_network_plugin_name=cni
+openshift_use_openshift_sdn=false
+openshift_use_flannel=true
+
+
+
+#################################### HOSTS ####################################
+[all]
+localhost ansible_connection=local
+
+# Nodes where openshift will be deployed
+loadbalancer-1 ansible_connection=local containerized=false
+master-1
+infra-1 openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+node-1 openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
+node-2 openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
+node-3 openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
+
+[masters]
+master-1
+
+[etcd]
+master-1
+
+[lb]
+loadbalancer-1
+
+[nodes]
+# master needs to be included in the node to be configured in the SDN
+master-1
+infra-1
+node-1
+node-2
+node-3
+
+
+
+################################## OPENSTACK ##################################
+[os_vms]
+loadbalancer-1 os_flavor_name=general.3 os_vip_pool_name=GATEWAY_NET
+master-1 os_flavor_name=general.1 os_net_name=PRIVATE_NET
+infra-1 os_flavor_name=general.2 os_net_name=PRIVATE_NET
+node-1 os_flavor_name=general.1 os_net_name=PRIVATE_NET
+node-2 os_flavor_name=general.1 os_net_name=PRIVATE_NET
+node-3 os_flavor_name=general.1 os_net_name=PRIVATE_NET
+
+[bastions]
+# Bastions are a group which allows us to define 1 or more hosts for setup
+#  purposes. This group is dynamically generated when the VMs are created.
+#  Anything with a loating IP address will be marked automatically as a bastion.
+#  For the purpose of this example the bastion is also the loadbalancer.

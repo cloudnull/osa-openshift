@@ -1,0 +1,58 @@
+---
+# Copyright 2017, Rackspace US, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+- name: Deploy OpenShift
+  hosts: bastions
+  user: centos
+  tasks:
+    - name: Copy inventory
+      copy:
+        src: inventory
+        dest: "{{ ansible_env.HOME }}/inventory"
+
+    - name: Copy setup playbook
+      copy:
+        src: playbook-host-setup.yml
+        dest: "{{ ansible_env.HOME }}/inventory"
+
+    - name: Install packages
+      package:
+        name: "{{ item }}"
+      become: true
+      with_items:
+        - https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+        - ansible
+        - bind-utils
+        - git
+        - tmux
+
+    - name: Get OpenShift
+      git:
+        repo: https://github.com/openshift/openshift-ansible
+        dest: "{{ ansible_env.HOME }}/openshift-ansible"
+        version: openshift-ansible-3.5.117-1
+
+    - name: Run cluster commands
+      raw: "ansible-playbook -i ~/inventory {{ ansible_env.HOME }}/playbook-host-setup.yml"
+
+    - name: Deploy
+      command: "{{ item }}"
+      args:
+        chdir: "{{ ansible_env.HOME }}/openshift-ansible"
+      with_items:
+        - tmux new-session -d -s build-openshift
+        - tmux select-pane -t 0
+        - tmux send-keys "ulimit -n 10240" C-m
+        - tmux send-keys "ansible-playbook -i ~/inventory playbooks/byo/config.yml" C-m
